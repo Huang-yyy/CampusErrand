@@ -1,0 +1,6 @@
+secrets.local.json
+campus_errand.db
+campus_errand.db.*
+server.log
+__pycache__/
+*.pyc

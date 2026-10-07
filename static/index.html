@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CampusErrand 校园代跑悬赏</title>
+<style>
+  :root { --brand:#1a4fb0; --ok:#1a9e5c; --warn:#dc8a00; }
+  * { box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei",system-ui,sans-serif; margin:0; background:#f5f7fa; color:#222; }
+  header { background:var(--brand); color:#fff; padding:14px 20px; }
+  header h1 { margin:0; font-size:20px; }
+  main { max-width:860px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e2e6ed; border-radius:10px; padding:16px 18px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  label { display:block; font-size:13px; color:#666; margin:10px 0 4px; }
+  input, select, textarea { width:100%; padding:8px 10px; border:1px solid #ccd3e0; border-radius:6px; font-size:14px; font-family:inherit; }
+  .row { display:flex; gap:12px; } .row > div { flex:1; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:6px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.sm { padding:5px 10px; font-size:13px; }
+  button.green { background:var(--ok); }
+  button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .badge { display:inline-block; padding:2px 9px; border-radius:12px; font-size:12px; background:#eef2fa; color:#345; }
+  .badge.open { background:#eaf6 ff; color:#0a7}
+  .errand { border:1px solid #e8ecf3; border-left:4px solid var(--brand); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
+  .errand .meta { font-size:12px; color:#677;
+  }
+  .err { color:#c33; font-size:13px; margin-top:6px; min-height:16px;}
+  .ok { color:var(--ok); font-size:13px; }
+  footer { text-align:center; color:#9aa; font-size:12px; padding:18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CampusErrand · 校园代跑悬赏平台</h1>
+  <div style="margin-top:6px;font-size:12px;opacity:.9">顺路帮带 · 校园代跑 · 悬赏制</div>
+</header>
+<main>
+  <!-- 身份 -->
+  <div class="card">
+    <h3>我的身份</h3>
+    <div class="row">
+      <div><label>姓名</label><input id="me_name" placeholder="小明"></div>
+      <div><label>学号</label><input id="me_sid" placeholder="1230001234"></div>
+    </div>
+    <div style="margin-top:10px">
+      <button id="btn_login">登录 / 注册</button>
+      <span id="me_info" class="ok" style="margin-left:12px"></span>
+    </div>
+  </div>
+
+  <!-- 发布 -->
+  <div class="card">
+    <h3>发布代跑任务</h3>
+    <div class="row">
+      <div><label>标题</label><input id="f_title" placeholder="帮取今明到柜的包裹"></div>
+    </div>
+    <div class="row">
+      <div><label>取件点</label><input id="f_pickup" value="横琴快递站（校园外）"></div>
+      <div><label>送达</label>
+        <select id="f_delivery"><option>宿舍（校内）</option><option>擎天会</option></select>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>类型</label>
+        <select id="f_cat"><option value="parcel">包裹</option><option value="meal">外卖</option><option value="print">打印</option><option value="shopping">跨境代购</option></select>
+      </div>
+      <div><label>物件大小</label>
+        <select id="f_size"><option value="small">小件</option><option value="medium" selected>中件</option><option value="large">大件</option></select>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>悬赏(¥)</label><input id="f_bounty" type="number" value="8" min="1"></div>
+    </div>
+    <label>包裹内容申报(必填 · 审核详情仅你与平台可见,不向接单者与其他人公开)</label>
+    <textarea id="f_content" rows="2" placeholder="如:衣服、书本、零食(食品需密封)…请如实申报"></textarea>
+    <label>说明</label><textarea id="f_desc" rows="2" placeholder="包裹在横琴快递站,取件码接单后显示"></textarea>
+    <div style="margin-top:10px"><button id="btn_post">发布</button><span class="err" id="post_err"></span></div>
+  </div>
+
+  <!-- 列表 -->
+  <div class="card">
+    <h3>待办任务 <button class="sm ghost" id="btn_refresh">刷新</button></h3>
+    <div id="list"></div>
+  </div>
+</main>
+<footer>课程项目 · 虚拟悬赏 · 仅供演示</footer>
+<script>
+let ME = null;
+const $ = id => document.getElementById(id);
+
+function api(path, body){
+  return fetch(path, {method: body?'POST':'GET',
+    headers: {'Content-Type':'application/json'},
+    body: body?JSON.stringify(body):undefined}).then(r=>{
+      if(!r.ok) return r.json().then(e=>{throw new Error(e.detail||r.status)});
+      return r.json();
+    });
+}
+
+$('btn_login').onclick = async ()=>{
+  try{
+    ME = await api('/api/register', {name:$('me_name').value.trim(), student_id:$('me_sid').value.trim()});
+    $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）';
+    refresh();
+  }catch(e){ alert('登录失败：'+e.message); }
+};
+
+$('btn_post').onclick = async ()=>{
+  if(!ME) return alert('请先登录');
+  const body = {
+    title:$('f_title').value.trim(), description:$('f_desc').value.trim(),
+    category:$('f_cat').value, size:$('f_size').value, pickup:$('f_pickup').value.trim(),
+    delivery:$('f_delivery').value, bounty:parseFloat($('f_bounty').value),
+    content:$('f_content').value.trim(),
+    requester_id: ME.id, pickup_code:'CODE-'+Math.random().toString(36).slice(2,8)
+  };
+  try{
+    const r = await api('/api/errands', body);
+    if(r.audit_status === 'rejected'){ $('post_err').textContent='平台审核未通过：'+r.audit_note; }
+    else { $('f_title').value=''; $('f_desc').value=''; $('f_content').value=''; $('post_err').textContent=''; refresh(); }
+  }
+  catch(e){ $('post_err').textContent='发布失败：'+e.message; }
+};
+
+function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+async function refresh(){
+  if(!ME) return;
+  const list = await api('/api/errands?viewer_id='+ME.id);
+  const mine = list.filter(e=>e.requester_id===ME.id);
+  const others = list.filter(e=>e.requester_id!==ME.id);
+  $('list').innerHTML = '';
+
+  if(mine.length) $('list').innerHTML += '<b style="font-size:14px">我发布的：</b>';
+  mine.forEach(e=>$('list').innerHTML += renderErrand(e, true));
+  if(others.length) $('list').innerHTML += '<b style="font-size:14px;margin-top:10px;display:block">可接的：</b>';
+  others.forEach(e=>$('list').innerHTML += renderErrand(e, false));
+}
+
+function renderErrand(e, mine){
+  const badge = {open:'待接', accepted:'进行中', delivered:'已完成', cancelled:'已取消'}[e.status];
+  const sizeLabel = {small:'小件', medium:'中件', large:'大件'}[e.size] || '';
+  const auditTag = (e.audit_status === 'approved')
+    ? '<span class="badge" style="background:#e5f6ec;color:#0a7">平台已审核</span>' : '';
+  let act='';
+  // 接单:只有别人发、还没被接的任务
+  if(!mine && e.status==='open') act = `<button class="sm green" onclick="accept(${e.id})">接单</button>`;
+  // 确认送达:只有当前 login 用户是 runner 才显示
+  if(ME && e.runner_id===ME.id && e.status==='accepted') act = `<button class="sm" onclick="deliver(${e.id})">确认送达</button>`;
+  if(e.status==='delivered') act = '';
+  // 取件码:只有发布者(请求方)在已接后可见;顺路者接单后也需要看到取件码
+  let code='';
+  if(e.status==='accepted' && (mine || (ME && e.runner_id===ME.id)) && e.pickup_code)
+    code = `<div class="meta">取件码：<b>${esc(e.pickup_code)}</b></div>`;
+  // 标注是否本人接单
+  const mineTag = (ME && e.runner_id===ME.id) ? ' <span class="badge" style="background:#e5f6ec;color:#0a7">我接的单</span>' : '';
+  // 方案 C:审核详情(申报内容)仅「发布方」与「平台」可见;
+  // 接单者(顺路者)看不到具体内容 —— 只看到 类别 + 尺寸 + 平台已审核标记。
+  let contentHtml='';
+  if(e.content && mine)
+    contentHtml = `<div class="meta">申报内容(仅你与平台可见)：<b>${esc(e.content)}</b></div>`;
+  return `<div class="errand">
+    <div><b>${esc(e.title)}</b> <span class="badge">${badge}</span>${auditTag}${mineTag}</div>
+    <div class="meta">${esc(e.pickup)} → ${esc(e.delivery)} · 悬赏 ¥${e.bounty}${sizeLabel?' · '+sizeLabel:''} · 发布:${esc(e.requester||'')}</div>
+    ${e.description?`<div class="meta">${esc(e.description)}</div>`:''}
+    ${contentHtml}
+    ${code}
+    <div style="margin-top:6px">${act}</div>
+  </div>`;
+}
+
+async function accept(eid){
+  try{ await api('/api/errands/'+eid+'/accept', {user_id:ME.id}); refresh(); }
+  catch(e){ alert('接单失败：'+e.message); }
+}
+async function deliver(eid){
+  try{ await api('/api/errands/'+eid+'/deliver', {user_id:ME.id}); refresh(); }
+  catch(e){ alert('确认失败：'+e.message); }
+}
+
+refresh().catch(()=>{});
+</script>
+</body>
+</html>

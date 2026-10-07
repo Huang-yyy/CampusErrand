@@ -1,0 +1,4 @@
+# CampusErrand 本地开发依赖
+fastapi
+uvicorn
+pydantic
