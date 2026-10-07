@@ -47,27 +47,6 @@
       <button id="btn_recharge" class="ghost" style="margin-left:8px">充值</button>
       <span id="me_info" class="ok" style="margin-left:12px"></span>
     </div>
-
-    <!-- 充值面板:点「充值」展开 -->
-    <div id="recharge_panel" style="display:none;margin-top:12px;padding-top:12px;border-top:1px dashed #ccd3e0">
-      <label>选择充值金额（模拟币 · 测试阶段）</label>
-      <div id="amt_btns" style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px">
-        <button class="sm ghost" data-amt="10">10</button>
-        <button class="sm ghost" data-amt="20">20</button>
-        <button class="sm ghost" data-amt="30">30</button>
-        <button class="sm ghost" data-amt="50">50</button>
-        <button class="sm ghost" data-amt="100">100</button>
-        <button class="sm ghost" data-amt="200">200</button>
-        <button class="sm ghost" data-amt="500">500</button>
-      </div>
-      <div class="row">
-        <div><label>自由输入（1 ~ 10000）</label><input id="amt_custom" type="number" min="1" max="10000" placeholder="输入任意金额"></div>
-      </div>
-      <div style="margin-top:8px">
-        <button id="btn_do_recharge">确认充值</button>
-        <span class="err" id="recharge_err"></span>
-      </div>
-    </div>
   </div>
 
   <!-- 发布 -->
@@ -105,6 +84,7 @@
 <footer>课程项目 · 虚拟悬赏 · 仅供演示</footer>
 <script>
 let ME = null;
+try { const _saved = JSON.parse(localStorage.getItem('ce_user') || 'null'); if(_saved && _saved.id) ME = _saved; } catch(e){}
 const $ = id => document.getElementById(id);
 
 function api(path, body){
@@ -119,33 +99,20 @@ function api(path, body){
 $('btn_login').onclick = async ()=>{
   try{
     ME = await api('/api/register', {name:$('me_name').value.trim(), student_id:$('me_sid').value.trim()});
+    localStorage.setItem('ce_user', JSON.stringify(ME));
     $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）';
     refresh();
   }catch(e){ alert('登录失败：'+e.message); }
 };
 
-// 充值:点按钮展开金额面板(预设档位 + 自由输入)
+// 充值:跳转到独立的加值页面 /recharge
 $('btn_recharge').onclick = ()=>{
   if(!ME) return alert('请先登录');
-  const p = $('recharge_panel');
-  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
-  $('recharge_err').textContent = '';
+  localStorage.setItem('ce_user', JSON.stringify(ME));
+  location.href = '/recharge';
 };
 
-async function doRecharge(amt){
-  if(!amt || amt <= 0){ $('recharge_err').textContent = '请输入有效金额'; return; }
-  try{
-    ME = await api('/api/recharge', {user_id: ME.id, amount: amt});
-    $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）';
-    $('recharge_err').textContent = '';
-    alert('充值成功 +'+amt+'（模拟币）\n当前余额 ¥'+ME.balance);
-  }catch(e){ $('recharge_err').textContent = '充值失败：'+e.message; }
-}
 
-document.querySelectorAll('#amt_btns button').forEach(b=>{
-  b.onclick = ()=>{ const a = parseFloat(b.dataset.amt); $('amt_custom').value = a; doRecharge(a); };
-});
-$('btn_do_recharge').onclick = ()=>{ doRecharge(parseFloat($('amt_custom').value)); };
 
 $('btn_post').onclick = async ()=>{
   if(!ME) return alert('请先登录');
@@ -171,6 +138,7 @@ function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&
 async function refresh(){
   if(!ME) return;
   try{ ME = await api('/api/user/'+ME.id);
+       localStorage.setItem('ce_user', JSON.stringify(ME));
        $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）'; }catch(e){}
   const list = await api('/api/errands?viewer_id='+ME.id);
   const mine = list.filter(e=>e.requester_id===ME.id);
@@ -233,6 +201,7 @@ async function deliver(eid){
   catch(e){ alert('确认失败：'+e.message); }
 }
 
+if(ME){ $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）'; }
 refresh().catch(()=>{});
 </script>
 </body>

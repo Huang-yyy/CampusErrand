@@ -241,10 +241,18 @@ def audit_items(key: str = "", limit: int = 50):
         conn.close()
 
 
-# ---------------- static index ----------------
+# ---------------- static pages ----------------
 @app.get("/")
 def index():
     from fastapi.responses import HTMLResponse
     from pathlib import Path as _P
     html = _P(STATIC / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html)
+
+
+@app.get("/recharge")
+def recharge_page():
+    """加值页(独立跳转页面:/recharge)。"""
+    from fastapi.responses import HTMLResponse
+    html = (STATIC / "recharge.html").read_text(encoding="utf-8")
     return HTMLResponse(html)
