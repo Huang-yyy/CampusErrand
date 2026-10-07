@@ -38,7 +38,7 @@
   <!-- 身份 -->
   <div class="card">
     <h3>我的身份</h3>
-    <div class="row">
+    <div class="row" id="row_id">
       <div><label>姓名</label><input id="me_name" placeholder="小明"></div>
       <div><label>学号</label><input id="me_sid" placeholder="1230001234"></div>
     </div>
@@ -46,6 +46,7 @@
       <button id="btn_login">登录 / 注册</button>
       <button id="btn_recharge" class="ghost" style="margin-left:8px">充值</button>
       <span id="me_info" class="ok" style="margin-left:12px"></span>
+      <button id="btn_logout" class="ghost" style="margin-left:8px;display:none">退出</button>
     </div>
   </div>
 
@@ -83,9 +84,35 @@
 </main>
 <footer>课程项目 · 虚拟悬赏 · 仅供演示</footer>
 <script>
-let ME = null;
-try { const _saved = JSON.parse(localStorage.getItem('ce_user') || 'null'); if(_saved && _saved.id) ME = _saved; } catch(e){}
 const $ = id => document.getElementById(id);
+let ME = null;
+
+/* ---------- 登录态:localStorage + cookie 双保险(关掉页面无需重新登录) ---------- */
+function saveMe(u){
+  ME = u;
+  try{ localStorage.setItem('ce_user', JSON.stringify(u)); }catch(e){}
+  document.cookie = 'ce_uid=' + u.id + '; max-age=31536000; path=/';
+}
+function loadMe(){
+  let u = null;
+  try{ u = JSON.parse(localStorage.getItem('ce_user') || 'null'); }catch(e){}
+  if(!u || !u.id){
+    const m = document.cookie.match(/(?:^|;\s*)ce_uid=(\d+)/);
+    if(m) u = {id: parseInt(m[1], 10)};
+  }
+  return (u && u.id) ? u : null;
+}
+/* 界面按「已登录 / 未登录」切换:登录后不再显示姓名学号输入框 */
+function paintMe(){
+  const on = !!ME;
+  $('row_id').style.display     = on ? 'none' : '';
+  $('btn_login').style.display  = on ? 'none' : '';
+  $('btn_recharge').style.display = on ? '' : 'none';
+  $('btn_logout').style.display = on ? 'inline-block' : 'none';
+  $('me_info').textContent = on
+    ? ('✔ 已登录：' + (ME.name || '同步中…') + (ME.balance != null ? '（余额 ¥' + ME.balance + '）' : ''))
+    : '';
+}
 
 function api(path, body){
   return fetch(path, {method: body?'POST':'GET',
@@ -98,14 +125,23 @@ function api(path, body){
 
 $('btn_login').onclick = async ()=>{
   try{
-    ME = await api('/api/register', {name:$('me_name').value.trim(), student_id:$('me_sid').value.trim()});
-    localStorage.setItem('ce_user', JSON.stringify(ME));
-    $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）';
+    const u = await api('/api/register', {name:$('me_name').value.trim(), student_id:$('me_sid').value.trim()});
+    saveMe(u);
+    paintMe();
     refresh();
   }catch(e){ alert('登录失败：'+e.message); }
 };
 
 // 充值:跳转到独立的加值页面 /recharge
+// 退出登录:清除本地登录态 -> 回到未登录状态
+$('btn_logout').onclick = ()=>{
+  if(!confirm('确定要退出登录吗？')) return;
+  try{ localStorage.removeItem('ce_user'); }catch(e){}
+  document.cookie = 'ce_uid=; max-age=0; path=/';
+  ME = null;
+  location.reload();
+};
+
 $('btn_recharge').onclick = ()=>{
   if(!ME) return alert('请先登录');
   localStorage.setItem('ce_user', JSON.stringify(ME));
@@ -136,13 +172,12 @@ $('btn_post').onclick = async ()=>{
 function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 
 async function refresh(){
-  if(!ME) return;
-  try{ ME = await api('/api/user/'+ME.id);
-       localStorage.setItem('ce_user', JSON.stringify(ME));
-       $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）'; }catch(e){}
-  const list = await api('/api/errands?viewer_id='+ME.id);
-  const mine = list.filter(e=>e.requester_id===ME.id);
-  const others = list.filter(e=>e.requester_id!==ME.id);
+  if(ME){
+    try{ const u = await api('/api/user/'+ME.id); saveMe(u); paintMe(); }catch(e){}
+  }
+  const list = await api('/api/errands' + (ME ? '?viewer_id='+ME.id : ''));
+  const mine   = ME ? list.filter(e=>e.requester_id===ME.id)  : [];
+  const others = ME ? list.filter(e=>e.requester_id!==ME.id) : list;
   $('list').innerHTML = '';
 
   if(mine.length) $('list').innerHTML += '<b style="font-size:14px">我发布的：</b>';
@@ -201,7 +236,9 @@ async function deliver(eid){
   catch(e){ alert('确认失败：'+e.message); }
 }
 
-if(ME){ $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）'; }
+/* 进页面:自动恢复上次的登录态(关掉浏览器/微信后回来仍是登录状态) */
+ME = loadMe();
+paintMe();
 refresh().catch(()=>{});
 </script>
 </body>
