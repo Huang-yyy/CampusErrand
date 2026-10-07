@@ -52,10 +52,7 @@
   <div class="card">
     <h3>发布代跑任务</h3>
     <div class="row">
-      <div><label>标题</label><input id="f_title" placeholder="帮取今明到柜的包裹"></div>
-    </div>
-    <div class="row">
-      <div><label>取件点</label><input id="f_pickup" value="横琴快递站（校园外）"></div>
+      <div><label>取件地址（具体到驿站）</label><input id="f_pickup" placeholder="如：横琴菜鸟驿站（口岸店）"></div>
       <div><label>送达</label>
         <select id="f_delivery"><option>宿舍（校内）</option><option>擎天会</option></select>
       </div>
@@ -107,9 +104,11 @@ $('btn_login').onclick = async ()=>{
 
 $('btn_post').onclick = async ()=>{
   if(!ME) return alert('请先登录');
+  const addr = $('f_pickup').value.trim();
+  if(!addr) return alert('请填写取件地址（具体到哪个驿站）');
   const body = {
-    title:$('f_title').value.trim(), description:$('f_desc').value.trim(),
-    category:$('f_cat').value, size:$('f_size').value, pickup:$('f_pickup').value.trim(),
+    title:'帮取'+addr+'的包裹', description:$('f_desc').value.trim(),
+    category:$('f_cat').value, size:$('f_size').value, pickup:addr,
     delivery:$('f_delivery').value, bounty:parseFloat($('f_bounty').value),
     content:$('f_content').value.trim(),
     requester_id: ME.id, pickup_code:'CODE-'+Math.random().toString(36).slice(2,8)
@@ -117,7 +116,7 @@ $('btn_post').onclick = async ()=>{
   try{
     const r = await api('/api/errands', body);
     if(r.audit_status === 'rejected'){ $('post_err').textContent='平台审核未通过：'+r.audit_note; }
-    else { $('f_title').value=''; $('f_desc').value=''; $('f_content').value=''; $('post_err').textContent=''; refresh(); }
+    else { $('f_desc').value=''; $('f_content').value=''; $('post_err').textContent=''; refresh(); }
   }
   catch(e){ $('post_err').textContent='发布失败：'+e.message; }
 };
