@@ -4,3 +4,4 @@ campus_errand.db.*
 server.log
 __pycache__/
 *.pyc
+.venv/
