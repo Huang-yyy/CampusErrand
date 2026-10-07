@@ -49,6 +49,11 @@ class Deliver(BaseModel):
     user_id: int
 
 
+class Recharge(BaseModel):
+    user_id: int
+    amount: float = 100.0
+
+
 # ---------------- helpers ----------------
 def _user(conn, user_id):
     row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
@@ -182,6 +187,32 @@ def deliver(eid: int, d: Deliver):
                      (eid,))
         conn.commit()
         return dict(conn.execute("SELECT * FROM errands WHERE id=?", (eid,)).fetchone())
+    finally:
+        conn.close()
+
+
+# ---------------- 模拟货币:充值 / 查余额(测试阶段,不涉及真实支付) ----------------
+@app.post("/api/recharge")
+def recharge(r: Recharge):
+    """测试阶段的模拟货币充值 —— 一键加币,不接支付网关。"""
+    if r.amount <= 0 or r.amount > 10000:
+        raise HTTPException(400, "充值金额需在 0 ~ 10000 之间")
+    conn = db.get_conn()
+    try:
+        _user(conn, r.user_id)
+        conn.execute("UPDATE users SET balance = balance + ? WHERE id=?", (r.amount, r.user_id))
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM users WHERE id=?", (r.user_id,)).fetchone())
+    finally:
+        conn.close()
+
+
+@app.get("/api/user/{uid}")
+def get_user(uid: int):
+    """查询用户信息(界面用于同步余额变化)。"""
+    conn = db.get_conn()
+    try:
+        return dict(_user(conn, uid))
     finally:
         conn.close()
 

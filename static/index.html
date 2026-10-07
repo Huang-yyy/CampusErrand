@@ -44,7 +44,29 @@
     </div>
     <div style="margin-top:10px">
       <button id="btn_login">登录 / 注册</button>
+      <button id="btn_recharge" class="ghost" style="margin-left:8px">充值</button>
       <span id="me_info" class="ok" style="margin-left:12px"></span>
+    </div>
+
+    <!-- 充值面板:点「充值」展开 -->
+    <div id="recharge_panel" style="display:none;margin-top:12px;padding-top:12px;border-top:1px dashed #ccd3e0">
+      <label>选择充值金额（模拟币 · 测试阶段）</label>
+      <div id="amt_btns" style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px">
+        <button class="sm ghost" data-amt="10">10</button>
+        <button class="sm ghost" data-amt="20">20</button>
+        <button class="sm ghost" data-amt="30">30</button>
+        <button class="sm ghost" data-amt="50">50</button>
+        <button class="sm ghost" data-amt="100">100</button>
+        <button class="sm ghost" data-amt="200">200</button>
+        <button class="sm ghost" data-amt="500">500</button>
+      </div>
+      <div class="row">
+        <div><label>自由输入（1 ~ 10000）</label><input id="amt_custom" type="number" min="1" max="10000" placeholder="输入任意金额"></div>
+      </div>
+      <div style="margin-top:8px">
+        <button id="btn_do_recharge">确认充值</button>
+        <span class="err" id="recharge_err"></span>
+      </div>
     </div>
   </div>
 
@@ -102,6 +124,29 @@ $('btn_login').onclick = async ()=>{
   }catch(e){ alert('登录失败：'+e.message); }
 };
 
+// 充值:点按钮展开金额面板(预设档位 + 自由输入)
+$('btn_recharge').onclick = ()=>{
+  if(!ME) return alert('请先登录');
+  const p = $('recharge_panel');
+  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+  $('recharge_err').textContent = '';
+};
+
+async function doRecharge(amt){
+  if(!amt || amt <= 0){ $('recharge_err').textContent = '请输入有效金额'; return; }
+  try{
+    ME = await api('/api/recharge', {user_id: ME.id, amount: amt});
+    $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）';
+    $('recharge_err').textContent = '';
+    alert('充值成功 +'+amt+'（模拟币）\n当前余额 ¥'+ME.balance);
+  }catch(e){ $('recharge_err').textContent = '充值失败：'+e.message; }
+}
+
+document.querySelectorAll('#amt_btns button').forEach(b=>{
+  b.onclick = ()=>{ const a = parseFloat(b.dataset.amt); $('amt_custom').value = a; doRecharge(a); };
+});
+$('btn_do_recharge').onclick = ()=>{ doRecharge(parseFloat($('amt_custom').value)); };
+
 $('btn_post').onclick = async ()=>{
   if(!ME) return alert('请先登录');
   const addr = $('f_pickup').value.trim();
@@ -125,6 +170,8 @@ function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&
 
 async function refresh(){
   if(!ME) return;
+  try{ ME = await api('/api/user/'+ME.id);
+       $('me_info').textContent = '已登录：'+ME.name+'（余额 ¥'+ME.balance+'）'; }catch(e){}
   const list = await api('/api/errands?viewer_id='+ME.id);
   const mine = list.filter(e=>e.requester_id===ME.id);
   const others = list.filter(e=>e.requester_id!==ME.id);
@@ -144,9 +191,13 @@ function renderErrand(e, mine){
   let act='';
   // 接单:只有别人发、还没被接的任务
   if(!mine && e.status==='open') act = `<button class="sm green" onclick="accept(${e.id})">接单</button>`;
-  // 确认送达:只有当前 login 用户是 runner 才显示
-  if(ME && e.runner_id===ME.id && e.status==='accepted') act = `<button class="sm" onclick="deliver(${e.id})">确认送达</button>`;
-  if(e.status==='delivered') act = '';
+  // 确认送达:只有当前 login 用户是 runner 才显示(点它自动结算悬赏)
+  if(ME && e.runner_id===ME.id && e.status==='accepted') act = `<button class="sm" onclick="deliver(${e.id})">确认送达（结算悬赏）</button>`;
+  // 发布者视角:给出明确的进度提示,避免"发完单没后续"的感觉
+  if(mine && e.status==='open') act = '<span class="meta">⏳ 等待接单中…</span>';
+  if(mine && e.status==='accepted') act = '<span class="meta">🏃 已有人接单,取件中…</span>';
+  // 已完成:把结算结果写清楚
+  if(e.status==='delivered') act = `<span class="ok">✅ 已完成 · 悬赏 ¥${e.bounty} 已结算给接单者</span>`;
   // 取件码:只有发布者(请求方)在已接后可见;顺路者接单后也需要看到取件码
   let code='';
   if(e.status==='accepted' && (mine || (ME && e.runner_id===ME.id)) && e.pickup_code)
@@ -173,7 +224,12 @@ async function accept(eid){
   catch(e){ alert('接单失败：'+e.message); }
 }
 async function deliver(eid){
-  try{ await api('/api/errands/'+eid+'/deliver', {user_id:ME.id}); refresh(); }
+  try{
+    const r = await api('/api/errands/'+eid+'/deliver', {user_id:ME.id});
+    alert('✅ 已确认送达！\n\n悬赏 ¥'+r.bounty+' 已自动结算：\n· 从发布者账户扣除 ¥'+r.bounty
+          +'\n· 已加到你的账户（模拟币）');
+    refresh();
+  }
   catch(e){ alert('确认失败：'+e.message); }
 }
 
