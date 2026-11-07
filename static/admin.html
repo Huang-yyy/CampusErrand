@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CampusErrand · 平台审核后台</title>
+<style>
+  :root { --brand:#1a4fb0; --ok:#1a9e5c; --warn:#dc8a00; --danger:#c33; }
+  * { box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei",system-ui,sans-serif; margin:0; background:#f5f7fa; color:#222; }
+  header { background:var(--brand); color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:19px; }
+  main { max-width:1180px; margin:20px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid #e2e6ed; border-radius:10px; padding:16px 18px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  label { display:block; font-size:13px; color:#666; margin:10px 0 4px; }
+  input, select { padding:8px 10px; border:1px solid #ccd3e0; border-radius:6px; font-size:14px; font-family:inherit; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:6px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.sm { padding:5px 11px; font-size:13px; }
+  button.green { background:var(--ok); }
+  button.red { background:var(--danger); }
+  button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+  .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .tabs button { background:#eef2fa; color:#345; }
+  .tabs button.active { background:var(--brand); color:#fff; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { border:1px solid #e8ecf3; padding:8px 9px; text-align:left; vertical-align:top; }
+  th { background:#f7f9fc; font-weight:600; white-space:nowrap; }
+  .st { display:inline-block; padding:2px 9px; border-radius:12px; font-size:12px; white-space:nowrap; }
+  .st.approved { background:#e5f6ec; color:#0a7; }
+  .st.rejected { background:#fdeaea; color:#c33; }
+  .st.pending  { background:#fff5e0; color:#b26a00; }
+  .tag-pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; background:#fff3e0; color:#b26a00; border:1px solid #ffd8a8; margin:1px; }
+  .secret { background:#f3f6fc; border-left:3px solid var(--brand); padding:5px 8px; border-radius:4px; }
+  .meta { font-size:12px; color:#677; }
+  .stat { display:inline-block; margin-right:22px; font-size:14px; }
+  .stat b { font-size:20px; color:var(--brand); }
+  .err { color:var(--danger); font-size:13px; min-height:16px; }
+  footer { text-align:center; color:#9aa; font-size:12px; padding:18px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 CampusErrand · 平台审核后台</h1>
+  <button class="sm ghost" id="btn_logout" style="background:#fff">退出后台</button>
+</header>
+<main>
+  <!-- 口令登录 -->
+  <div class="card" id="login_card">
+    <h3>平台管理员登录</h3>
+    <p class="meta">第三方平台审核视角:可查看用户申报的包裹内容(对普通用户/接单者脱敏),行使先审后发职责。</p>
+    <label>平台口令</label>
+    <input id="key_input" type="password" style="width:300px" placeholder="请输入平台审核口令">
+    <div style="margin-top:12px">
+      <button id="btn_login">进入后台</button>
+      <span class="err" id="login_err"></span>
+    </div>
+  </div>
+
+  <!-- 审核工作台 -->
+  <div id="work" class="hidden">
+    <div class="card">
+      <div id="stats"></div>
+    </div>
+    <div class="card">
+      <div class="tabs">
+        <button data-f="" class="active">全部</button>
+        <button data-f="pending">待人工复核</button>
+        <button data-f="approved">已通过</button>
+        <button data-f="rejected">已拒绝</button>
+        <button class="sm ghost" id="btn_refresh" style="margin-left:auto">刷新</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>任务</th><th>发布者</th><th>分类/大小</th><th>标签</th>
+              <th>悬赏</th><th>取件点</th><th>申报内容(保密)</th><th>审核状态/备注</th>
+              <th>发布时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"><tr><td colspan="11" class="meta">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+<footer>平台审核数据仅第三方管理员可见 · 包裹内容不对公众与接单者公开</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let KEY = sessionStorage.getItem('ce_admin_key') || '';
+let FILTER = '';
+
+function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+function fmtTime(s){
+  if(!s) return '';
+  const d = new Date(String(s).replace(' ','T') + 'Z');
+  if(isNaN(d)) return s;
+  return d.toLocaleString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+async function api(path, body){
+  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.detail || r.status);
+  return data;
+}
+
+function showWork(on){
+  $('login_card').classList.toggle('hidden', on);
+  $('work').classList.toggle('hidden', !on);
+}
+
+$('btn_login').onclick = async ()=>{
+  const k = $('key_input').value.trim();
+  if(!k) return $('login_err').textContent='请输入口令';
+  try{
+    await api('/api/audit/items?key=' + encodeURIComponent(k) + '&limit=1');
+    KEY = k; sessionStorage.setItem('ce_admin_key', KEY);
+    $('login_err').textContent=''; showWork(true); load();
+  }catch(e){ $('login_err').textContent='口令错误或无权限:' + e.message; }
+};
+$('key_input').addEventListener('keydown', e=>{ if(e.key==='Enter') $('btn_login').click(); });
+$('btn_logout').onclick = ()=>{ sessionStorage.removeItem('ce_admin_key'); KEY=''; showWork(false); };
+
+document.querySelectorAll('.tabs button[data-f]').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.tabs button[data-f]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); FILTER = b.dataset.f; load();
+  };
+});
+$('btn_refresh').onclick = load;
+
+const CAT = {parcel:'包裹', meal:'外卖', print:'打印', shopping:'跨境代购'};
+const SIZE = {small:'小件', medium:'中件', large:'大件'};
+const STCN = {approved:'已通过', rejected:'已拒绝', pending:'待复核'};
+
+async function load(){
+  let url = '/api/audit/items?key=' + encodeURIComponent(KEY) + '&limit=200';
+  if(FILTER) url += '&status=' + FILTER;
+  let rows;
+  try{ rows = await api(url); }catch(e){
+    if(String(e.message).includes('platform access only')||String(e.message).includes('403')){
+      showWork(false); $('login_err').textContent='口令已失效,请重新登录';
+    }
+    $('tbody').innerHTML = '<tr><td colspan="11" class="err">加载失败:'+esc(e.message)+'</td></tr>';
+    return;
+  }
+  // 统计(基于全部数据,不受当前筛选影响)
+  const all = await api('/api/audit/items?key=' + encodeURIComponent(KEY) + '&limit=500');
+  const c = {approved:0, rejected:0, pending:0};
+  all.forEach(r=> c[r.audit_status] = (c[r.audit_status]||0)+1);
+  $('stats').innerHTML =
+    '<span class="stat">申报总数 <b>'+all.length+'</b></span>' +
+    '<span class="stat">已通过 <b style="color:var(--ok)">'+c.approved+'</b></span>' +
+    '<span class="stat">已拒绝 <b style="color:var(--danger)">'+c.rejected+'</b></span>' +
+    '<span class="stat">待人工复核 <b style="color:var(--warn)">'+(c.pending||0)+'</b></span>';
+
+  if(!rows.length){ $('tbody').innerHTML='<tr><td colspan="11" class="meta">该分类下暂无订单</td></tr>'; return; }
+  $('tbody').innerHTML = rows.map(r=>{
+    const tags = (r.tags||'').split(',').filter(Boolean).map(t=>'<span class="tag-pill">#'+esc(t)+'</span>').join('');
+    return '<tr>' +
+      '<td>'+r.id+'</td>' +
+      '<td><b>'+esc(r.title||('任务#'+r.id))+'</b></td>' +
+      '<td>'+esc(r.requester||'某同学')+'<div class="meta">'+esc(r.student_id||'')+'</div></td>' +
+      '<td>'+(CAT[r.category]||r.category)+'<div class="meta">'+(SIZE[r.size]||r.size)+'</div></td>' +
+      '<td>'+(tags||'<span class="meta">—</span>')+'</td>' +
+      '<td>¥'+r.bounty+'</td>' +
+      '<td>'+esc(r.pickup||'')+'</td>' +
+      '<td><div class="secret">'+esc(r.content||'(未申报)')+'</div></td>' +
+      '<td><span class="st '+r.audit_status+'">'+(STCN[r.audit_status]||r.audit_status)+'</span>'+
+        (r.audit_note?'<div class="meta" style="margin-top:4px">'+esc(r.audit_note)+'</div>':'')+'</td>' +
+      '<td class="meta">'+fmtTime(r.created_at)+'</td>' +
+      '<td style="white-space:nowrap">'+
+        '<button class="sm green" onclick="decide('+r.id+",'approve'"+')">通过</button> ' +
+        '<button class="sm red" onclick="decide('+r.id+",'reject'"+')">驳回</button>' +
+      '</td></tr>';
+  }).join('');
+}
+
+async function decide(id, decision){
+  let note = '';
+  if(decision === 'reject'){
+    note = prompt('请输入驳回原因(会展示给发布者):');
+    if(note === null) return;          // 用户取消
+    if(!note.trim()){ alert('驳回必须填写原因'); return; }
+  }
+  try{
+    await api('/api/audit/items/' + id, {key:KEY, decision, note});
+    load();
+  }catch(e){ alert('操作失败:' + e.message); }
+}
+
+// 自动恢复登录
+if(KEY){ showWork(true); load(); }
+</script>
+</body>
+</html>

@@ -67,6 +67,12 @@ class SetRoutes(BaseModel):
     routes: list[str]   # 常跑取件点/路线关键词,如 ["横琴菜鸟驿站","十字门"]
 
 
+class AuditDecision(BaseModel):
+    key: str
+    decision: str          # approve | reject
+    note: str = ""         # 驳回原因 / 复核备注
+
+
 # ---------------- 标签规范化 ----------------
 def normalize_tags(raw: list[str] | str) -> str:
     """标签统一去空格、去重,存成逗号分隔字符串。"""
@@ -268,21 +274,59 @@ PLATFORM_KEY = os.getenv("CAMPUS_PLATFORM_KEY", "campus-platform")
 
 
 @app.get("/api/audit/items")
-def audit_items(key: str = "", limit: int = 50):
+def audit_items(key: str = "", status: str | None = None, limit: int = 50):
     """平台(第三方)审核视角:返回申报内容与审核状态。
 
     仅平台使用、对外不公开 —— 需要口令;接单者与普通用户都拿不到这些字段。
+    status 可选:pending(待人工复核) | approved | rejected
     """
     if key != PLATFORM_KEY:
         raise HTTPException(403, "platform access only")
     conn = db.get_conn()
     try:
-        rows = conn.execute(
-            "SELECT e.id, e.category, e.size, e.status, e.audit_status, e.audit_note, "
-            "e.content, e.created_at, u.name AS requester, u.student_id "
-            "FROM errands e LEFT JOIN users u ON u.id = e.requester_id "
-            "ORDER BY e.id DESC LIMIT ?", (limit,)).fetchall()
+        sql = ("SELECT e.id, e.title, e.category, e.size, e.status, e.audit_status, e.audit_note, "
+               "e.content, e.tags, e.bounty, e.pickup, e.created_at, "
+               "u.name AS requester, u.student_id "
+               "FROM errands e LEFT JOIN users u ON u.id = e.requester_id ")
+        params: list = []
+        if status:
+            sql += "WHERE e.audit_status = ? "
+            params.append(status)
+        sql += "ORDER BY e.id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/api/audit/items/{eid}")
+def audit_decide(eid: int, d: AuditDecision):
+    """平台人工复核:通过 / 驳回。驳回会把订单下架(状态置 rejected)。"""
+    if d.key != PLATFORM_KEY:
+        raise HTTPException(403, "platform access only")
+    if d.decision not in ("approve", "reject"):
+        raise HTTPException(400, "decision 只能是 approve 或 reject")
+    conn = db.get_conn()
+    try:
+        e = conn.execute("SELECT * FROM errands WHERE id=?", (eid,)).fetchone()
+        if not e:
+            raise HTTPException(404, "订单不存在")
+        if d.decision == "approve":
+            # 人工通过:审核标记 approved,若订单此前被自动拒绝则重新上架为 open
+            conn.execute(
+                "UPDATE errands SET audit_status='approved', audit_note=?, "
+                "audited_at=datetime('now'), status=CASE WHEN status='rejected' THEN 'open' ELSE status END "
+                "WHERE id=?", (d.note or "人工复核通过。", eid))
+        else:
+            note = d.note.strip() or "人工复核未通过。"
+            conn.execute(
+                "UPDATE errands SET audit_status='rejected', audit_note=?, "
+                "audited_at=datetime('now'), status='rejected' WHERE id=?", (note, eid))
+        conn.commit()
+        return dict(conn.execute(
+            "SELECT id, status, audit_status, audit_note, audited_at FROM errands WHERE id=?",
+            (eid,)).fetchone())
     finally:
         conn.close()
 
@@ -427,4 +471,12 @@ def recharge_page():
     """加值页(独立跳转页面:/recharge)。"""
     from fastapi.responses import HTMLResponse
     html = (STATIC / "recharge.html").read_text(encoding="utf-8")
+    return HTMLResponse(html)
+
+
+@app.get("/admin")
+def admin_page():
+    """平台审核后台(第三方管理员视角,需口令)。"""
+    from fastapi.responses import HTMLResponse
+    html = (STATIC / "admin.html").read_text(encoding="utf-8")
     return HTMLResponse(html)
