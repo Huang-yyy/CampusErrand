@@ -232,6 +232,15 @@ $('btn_post').onclick = async ()=>{
 
 function esc(s){ return (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 
+/* 发布时间:后端 SQLite datetime('now') 存的是 UTC 且无时区后缀,补 Z 后按北京时间渲染 */
+function fmtTime(s){
+  if(!s) return '';
+  const d = new Date(String(s).replace(' ', 'T') + 'Z');
+  if(isNaN(d)) return s;
+  return d.toLocaleString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+
 async function refresh(){
   if(ME){
     try{ const u = await api('/api/user/'+ME.id); saveMe(u); paintMe(); }catch(e){}
@@ -292,6 +301,7 @@ function renderErrand(e, mine){
   return `<div class="errand">
     <div><b>${esc(e.title)}</b> <span class="badge">${badge}</span>${auditTag}${mineTag}</div>
     <div class="meta">${esc(e.pickup)} → ${esc(e.delivery)} · 悬赏 ¥${e.bounty}${sizeLabel?' · '+sizeLabel:''} · 发布:${esc(e.requester||'')}</div>
+    <div class="meta">🕒 发布时间:${fmtTime(e.created_at)}</div>
     ${tagHtml?`<div>${tagHtml}</div>`:''}
     ${e.description?`<div class="meta">${esc(e.description)}</div>`:''}
     ${contentHtml}
