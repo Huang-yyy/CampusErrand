@@ -26,6 +26,29 @@
   }
   .err { color:#c33; font-size:13px; margin-top:6px; min-height:16px;}
   .ok { color:var(--ok); font-size:13px; }
+  .tag-pill { display:inline-block; padding:1px 8px; margin:2px 4px 0 0; border-radius:10px;
+              font-size:12px; background:#fff3e0; color:#b26a00; border:1px solid #ffd8a8; }
+  .filter-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .filter-bar select, .filter-bar input { width:auto; min-width:110px; padding:6px 8px; font-size:13px; }
+  .filter-bar input[type=text] { flex:1; min-width:140px; }
+  .modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex;
+                align-items:center; justify-content:center; z-index:50; }
+  .modal { background:#fff; border-radius:12px; width:min(560px,92vw); max-height:84vh;
+           display:flex; flex-direction:column; overflow:hidden; }
+  .modal h4 { margin:0; padding:14px 18px; border-bottom:1px solid #eee; display:flex;
+              justify-content:space-between; align-items:center; }
+  .modal .body { padding:14px 18px; overflow:auto; }
+  .chat-log { border:1px solid #e2e6ed; border-radius:8px; height:280px; overflow:auto;
+              padding:10px; background:#fafbfc; margin-bottom:10px; }
+  .bubble { max-width:75%; padding:7px 11px; border-radius:12px; margin:6px 0; font-size:14px;
+            word-break:break-all; white-space:pre-wrap; }
+  .bubble.me { background:var(--brand); color:#fff; margin-left:auto; }
+  .bubble.other { background:#eef1f6; color:#222; }
+  .bubble .who { font-size:11px; opacity:.75; display:block; margin-bottom:2px; }
+  .match-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px;
+               border:1px solid #e8ecf3; border-radius:8px; margin-bottom:8px; }
+  .rank-no { display:inline-block; width:24px; height:24px; line-height:24px; text-align:center;
+             border-radius:50%; background:var(--brand); color:#fff; font-size:12px; margin-right:8px; }
   footer { text-align:center; color:#9aa; font-size:12px; padding:18px; }
 </style>
 </head>
@@ -69,6 +92,8 @@
     </div>
     <div class="row">
       <div><label>悬赏(¥)</label><input id="f_bounty" type="number" value="8" min="1"></div>
+      <div><label>任务标签(逗号分隔,可留空)</label>
+        <input id="f_tags" placeholder="如:急单, 易碎, 生鲜"></div>
     </div>
     <label>包裹内容申报(必填 · 审核详情仅你与平台可见,不向接单者与其他人公开)</label>
     <textarea id="f_content" rows="2" placeholder="如:衣服、书本、零食(食品需密封)…请如实申报"></textarea>
@@ -79,9 +104,44 @@
   <!-- 列表 -->
   <div class="card">
     <h3>待办任务 <button class="sm ghost" id="btn_refresh">刷新</button></h3>
+    <div class="filter-bar">
+      <select id="flt_cat">
+        <option value="">全部分类</option>
+        <option value="parcel">包裹</option>
+        <option value="meal">外卖</option>
+        <option value="print">打印</option>
+        <option value="shopping">跨境代购</option>
+      </select>
+      <select id="flt_size">
+        <option value="">全部大小</option>
+        <option value="small">小件</option>
+        <option value="medium">中件</option>
+        <option value="large">大件</option>
+      </select>
+      <input id="flt_tag" type="text" placeholder="按标签筛选,如:急单">
+      <input id="flt_q" type="text" placeholder="搜标题/取件点">
+      <button class="sm" id="btn_filter">筛选</button>
+      <button class="sm ghost" id="btn_filter_clear">清除</button>
+    </div>
     <div id="list"></div>
   </div>
+
+  <!-- 常跑路线(顺路匹配用) -->
+  <div class="card">
+    <h3>我的常跑路线 <span style="font-size:12px;color:#888;font-weight:normal">设置后,顺路任务会优先推荐给你</span></h3>
+    <div class="row">
+      <div style="flex:3"><label>常去取件点/路线关键词(逗号分隔)</label>
+        <input id="my_routes" placeholder="如:横琴, 菜鸟驿站, 十字门"></div>
+      <div style="flex:1;display:flex;align-items:flex-end">
+        <button id="btn_routes" style="width:100%">保存路线</button>
+      </div>
+    </div>
+    <div id="routes_info" class="ok" style="margin-top:8px"></div>
+  </div>
 </main>
+
+<!-- 通用弹窗容器 -->
+<div id="modal_root"></div>
 <footer>课程项目 · 虚拟悬赏 · 仅供演示</footer>
 <script>
 const $ = id => document.getElementById(id);
@@ -159,12 +219,13 @@ $('btn_post').onclick = async ()=>{
     category:$('f_cat').value, size:$('f_size').value, pickup:addr,
     delivery:$('f_delivery').value, bounty:parseFloat($('f_bounty').value),
     content:$('f_content').value.trim(),
+    tags:$('f_tags').value.split(',').map(s=>s.trim()).filter(Boolean),
     requester_id: ME.id, pickup_code:'CODE-'+Math.random().toString(36).slice(2,8)
   };
   try{
     const r = await api('/api/errands', body);
     if(r.audit_status === 'rejected'){ $('post_err').textContent='平台审核未通过：'+r.audit_note; }
-    else { $('f_desc').value=''; $('f_content').value=''; $('post_err').textContent=''; refresh(); }
+    else { $('f_desc').value=''; $('f_content').value=''; $('f_tags').value=''; $('post_err').textContent=''; refresh(); }
   }
   catch(e){ $('post_err').textContent='发布失败：'+e.message; }
 };
@@ -175,7 +236,15 @@ async function refresh(){
   if(ME){
     try{ const u = await api('/api/user/'+ME.id); saveMe(u); paintMe(); }catch(e){}
   }
-  const list = await api('/api/errands' + (ME ? '?viewer_id='+ME.id : ''));
+  const params = new URLSearchParams();
+  if(ME) params.set('viewer_id', ME.id);
+  const cat=$('flt_cat').value, size=$('flt_size').value,
+        tag=$('flt_tag').value.trim(), q=$('flt_q').value.trim();
+  if(cat) params.set('category', cat);
+  if(size) params.set('size', size);
+  if(tag) params.set('tag', tag);
+  if(q) params.set('q', q);
+  const list = await api('/api/errands?' + params.toString());
   const mine   = ME ? list.filter(e=>e.requester_id===ME.id)  : [];
   const others = ME ? list.filter(e=>e.requester_id!==ME.id) : list;
   $('list').innerHTML = '';
@@ -212,13 +281,22 @@ function renderErrand(e, mine){
   let contentHtml='';
   if(e.content && mine)
     contentHtml = `<div class="meta">申报内容(仅你与平台可见)：<b>${esc(e.content)}</b></div>`;
+  const tagHtml = e.tags ? e.tags.split(',').filter(Boolean)
+    .map(t=>`<span class="tag-pill">#${esc(t)}</span>`).join('') : '';
+  // 聊天:任务双方(我的单有人接 / 我接的单)都能进
+  const canChat = ME && e.runner_id && (mine || e.runner_id===ME.id);
+  const chatBtn = canChat ? `<button class="sm ghost" style="margin-left:8px" onclick="openChat(${e.id})">💬 私聊(留痕)</button>` : '';
+  // 顺路匹配:我发布的、还没人接的单,可以看推荐接单者排行
+  const matchBtn = (mine && e.status==='open')
+    ? `<button class="sm ghost" style="margin-left:8px" onclick="openMatch(${e.id})">🧭 顺路匹配</button>` : '';
   return `<div class="errand">
     <div><b>${esc(e.title)}</b> <span class="badge">${badge}</span>${auditTag}${mineTag}</div>
     <div class="meta">${esc(e.pickup)} → ${esc(e.delivery)} · 悬赏 ¥${e.bounty}${sizeLabel?' · '+sizeLabel:''} · 发布:${esc(e.requester||'')}</div>
+    ${tagHtml?`<div>${tagHtml}</div>`:''}
     ${e.description?`<div class="meta">${esc(e.description)}</div>`:''}
     ${contentHtml}
     ${code}
-    <div style="margin-top:6px">${act}</div>
+    <div style="margin-top:6px">${act}${chatBtn}${matchBtn}</div>
   </div>`;
 }
 
@@ -234,6 +312,95 @@ async function deliver(eid){
     refresh();
   }
   catch(e){ alert('确认失败：'+e.message); }
+}
+
+/* ---------- 任务1:筛选栏 ---------- */
+$('btn_filter').onclick = ()=>refresh();
+$('btn_filter_clear').onclick = ()=>{
+  $('flt_cat').value=''; $('flt_size').value='';
+  $('flt_tag').value=''; $('flt_q').value='';
+  refresh();
+};
+['flt_cat','flt_size'].forEach(id=>$(id).addEventListener('change', ()=>refresh()));
+
+/* ---------- 任务3:保存我的常跑路线 ---------- */
+$('btn_routes').onclick = async ()=>{
+  if(!ME) return alert('请先登录');
+  const routes = $('my_routes').value.split(',').map(s=>s.trim()).filter(Boolean);
+  try{
+    const r = await api('/api/users/'+ME.id+'/routes', {user_id:ME.id, routes});
+    $('routes_info').textContent = '✔ 已保存常跑路线:' + (r.routes.join('、') || '空');
+  }catch(e){ alert('保存失败:'+e.message); }
+};
+
+/* ---------- 通用弹窗 ---------- */
+function closeModal(){ $('modal_root').innerHTML=''; }
+function showModal(title, innerHtml){
+  $('modal_root').innerHTML =
+    `<div class="modal-mask" onclick="if(event.target===this)closeModal()">
+       <div class="modal">
+         <h4><span>${esc(title)}</span><button class="sm ghost" onclick="closeModal()">关闭</button></h4>
+         <div class="body">${innerHtml}</div>
+       </div></div>`;
+}
+
+/* ---------- 任务2:任务内私聊(全程留痕) ---------- */
+async function openChat(eid){
+  if(!ME) return alert('请先登录');
+  showModal('任务私聊(全程留痕)',
+    `<div class="chat-log" id="chat_log">加载中…</div>
+     <div class="row">
+       <div style="flex:1"><input id="chat_input" placeholder="输入消息,回车发送"></div>
+       <div><button id="chat_send">发送</button></div>
+     </div>`);
+  const loadChat = async ()=>{
+    try{
+      const msgs = await api('/api/messages?errand_id='+eid+'&viewer_id='+ME.id);
+      $('chat_log').innerHTML = msgs.length ? msgs.map(m=>{
+        const mine = m.from_id===ME.id;
+        return `<div class="bubble ${mine?'me':'other'}"><span class="who">${esc(mine?'我':m.from_name)}</span>${esc(m.body)}</div>`;
+      }).join('') : '<div class="meta" style="text-align:center;margin-top:20px">还没有消息,发条消息开始沟通吧</div>';
+      $('chat_log').scrollTop = $('chat_log').scrollHeight;
+    }catch(e){ $('chat_log').textContent = '加载失败:'+e.message; }
+  };
+  const sendChat = async ()=>{
+    const body = $('chat_input').value.trim();
+    if(!body) return;
+    // 从列表里找到任务双方:我是发布方就发给接单者,反之发给发布方
+    const all = await api('/api/errands?viewer_id='+ME.id);
+    const errand = all.find(x=>x.id===eid);
+    if(!errand) return alert('任务不存在');
+    const toId = errand.requester_id===ME.id ? errand.runner_id : errand.requester_id;
+    try{
+      await api('/api/messages', {errand_id:eid, from_id:ME.id, to_id:toId, body});
+      $('chat_input').value='';
+      loadChat();
+    }catch(e){ alert('发送失败:'+e.message); }
+  };
+  $('chat_send').onclick = sendChat;
+  $('chat_input').addEventListener('keydown', ev=>{ if(ev.key==='Enter') sendChat(); });
+  loadChat();
+}
+
+/* ---------- 任务3:顺路匹配排行弹窗 ---------- */
+async function openMatch(eid){
+  showModal('顺路接单者推荐', '<div id="match_box">计算顺路程度中…</div>');
+  try{
+    const r = await api('/api/match?errand_id='+eid);
+    if(!r.matches.length){
+      $('match_box').innerHTML = '<div class="meta">暂时没有设置过常跑路线、且与取件点顺路的同学。<br>可提醒同学们在下方「我的常跑路线」里填写常去地点。</div>';
+      return;
+    }
+    $('match_box').innerHTML =
+      `<div class="meta" style="margin-bottom:10px">取件点:<b>${esc(r.pickup)}</b> · 按顺路程度从高到低排行(同分时历史完成单多的优先)</div>` +
+      r.matches.map((m,i)=>`
+        <div class="match-row">
+          <div><span class="rank-no">${i+1}</span><b>${esc(m.name)}</b>
+            <div class="meta" style="margin-left:32px">命中路线:${m.matched_routes.map(esc).join('、')} · 历史完成 ${m.delivered_count} 单</div>
+          </div>
+          <span class="tag-pill">顺路分 ${m.score}</span>
+        </div>`).join('');
+  }catch(e){ $('match_box').textContent = '匹配失败:'+e.message; }
 }
 
 /* 进页面:自动恢复上次的登录态(关掉浏览器/微信后回来仍是登录状态) */

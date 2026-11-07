@@ -33,7 +33,25 @@ CREATE TABLE IF NOT EXISTS errands (
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     accepted_at   TEXT,
     delivered_at  TEXT,
-    audited_at    TEXT
+    audited_at    TEXT,
+    tags          TEXT NOT NULL DEFAULT ''   -- 任务标签,逗号分隔(如:急单,易碎,生鲜)
+);
+
+-- 平台内私聊(全程留痕:只新增、不修改不删除)
+CREATE TABLE IF NOT EXISTS messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    errand_id   INTEGER NOT NULL REFERENCES errands(id),
+    from_id     INTEGER NOT NULL REFERENCES users(id),
+    to_id       INTEGER NOT NULL REFERENCES users(id),
+    body        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 接单者常跑取件路线(用于顺路程度匹配)
+CREATE TABLE IF NOT EXISTS user_routes (
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    route_tag  TEXT NOT NULL,
+    PRIMARY KEY (user_id, route_tag)
 );
 
 -- 迁移:为已存在的旧库补充新列(幂等)
@@ -56,6 +74,7 @@ def _migrate(conn):
         "audit_status": "ADD COLUMN audit_status TEXT NOT NULL DEFAULT 'pending'",
         "audit_note": "ADD COLUMN audit_note TEXT",
         "audited_at": "ADD COLUMN audited_at TEXT",
+        "tags": "ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
     }
     existing = {r["name"] for r in conn.execute("PRAGMA table_info(errands)").fetchall()}
     for name, ddl in cols.items():
